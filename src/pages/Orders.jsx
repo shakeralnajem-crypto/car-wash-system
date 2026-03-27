@@ -48,6 +48,7 @@ function getFilterLabel(filter, t) {
 }
 
 function formatOrderDate(dateValue, language) {
+  if (!dateValue) return '—'
   const parsed = new Date(dateValue)
   if (Number.isNaN(parsed.getTime())) return dateValue
   return parsed.toLocaleDateString(language === 'sv' ? 'sv-SE' : 'en-US', {
@@ -58,7 +59,9 @@ function formatOrderDate(dateValue, language) {
 }
 
 function formatOrderTime(timeValue, language) {
-  const parsed = new Date(`2000-01-01T${timeValue.replace(' ', '')}`)
+  if (!timeValue) return '—'
+  const safe = String(timeValue || '').replace(' ', '')
+  const parsed = new Date(`2000-01-01T${safe}`)
   if (Number.isNaN(parsed.getTime())) {
     const fallback = new Date(`2000-01-01 ${timeValue}`)
     if (Number.isNaN(fallback.getTime())) return timeValue
@@ -409,7 +412,7 @@ export default function Orders({ canManage = true }) {
   const filtered = orders.filter(order => {
     const normalizedSearch = search.toLowerCase()
     const matchSearch = (
-      (canManage && order.customer.toLowerCase().includes(normalizedSearch)) ||
+      (canManage && (order.customer || '').toLowerCase().includes(normalizedSearch)) ||
       (canManage && String(order.customerCode || '').includes(search)) ||
       String(order.id).includes(search) ||
       (order.employee || '').toLowerCase().includes(normalizedSearch)
