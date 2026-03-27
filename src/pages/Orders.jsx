@@ -78,7 +78,10 @@ function formatOrderTime(timeValue, language) {
 function OrderModal({ order, onSave, onClose, showCustomer, showPrice, customers }) {
   const { t } = useTranslation()
   const today = new Date().toISOString().split('T')[0]
-  const [form, setForm] = useState(order ? { ...order } : { ...EMPTY_FORM, customerCode: '', date: today })
+  const [form, setForm] = useState(order
+    ? { ...order, vehicle: order.vehicle || order.plate_number || '' }
+    : { ...EMPTY_FORM, customerCode: '', date: today }
+  )
   const [customerSearch, setCustomerSearch] = useState('')
 
   const matchingCustomers = showCustomer && customerSearch.trim()
@@ -280,7 +283,7 @@ function OrderView({ order, onClose, onEdit, onStatusChange, canEdit, showCustom
               ...(showCustomer ? [{ label: t('common.customer'), value: order.customer }] : []),
               ...(showCustomer ? [{ label: t('common.customerCode'), value: order.customerCode }] : []),
               { label: t('common.employee'), value: order.employee },
-              { label: t('common.vehicle'), value: order.vehicle },
+              { label: t('common.vehicle'), value: order.plate_number || order.vehicle },
               { label: t('common.service'), value: t(`services.${order.service}`) },
               ...(showPrice ? [{ label: t('common.price'), value: formatCurrency(order.price, language) }] : []),
               { label: t('pages.orders.date'), value: `${formatOrderDate(order.date, language)} ${formatOrderTime(order.time, language)}` },
@@ -345,21 +348,20 @@ export default function Orders({ canManage = true }) {
     fetchOrders()
   }, [])
 
-  function mapOrderToDb(form) {
-    const dbPayload = {
-      customer_name: form.customer || '',
-      customer_code: form.customerCode || null,
-      employee: form.employee || null,
-      vehicle: form.vehicle || null,
-      service: form.service || null,
-      price: form.price != null ? Number(form.price) : null,
+  const mapOrderToDb = (form) => {
+    const payload = {
+      customer: form.customer || '',
+      plate_number: form.vehicle || form.plate_number || '',
+      service: form.service || '',
+      employee: form.employee || '',
+      price: Number(form.price) || 0,
+      status: form.status || 'Pending',
       date: form.date || null,
       time: form.time || null,
-      status: form.status || null,
     }
 
-    console.log('Supabase mapped payload:', dbPayload)
-    return dbPayload
+    console.log('payload:', payload)
+    return payload
   }
 
   const filtered = orders.filter(order => {
@@ -378,11 +380,12 @@ export default function Orders({ canManage = true }) {
     try {
       if (modal === 'add') {
         const payload = mapOrderToDb(form)
-        console.log('Supabase insert payload:', payload)
+        console.log('payload:', payload)
 
-        const { data, error: insertError } = await supabase.from('orders').insert([payload]).select()
-        if (insertError) {
-          console.error('Supabase insert error:', insertError)
+        const { data, error } = await supabase.from('orders').insert([payload]).select()
+        console.log('error:', error)
+        if (error) {
+          console.error('Supabase insert error:', error)
           return
         }
         console.log('Supabase insert result:', data)
@@ -535,7 +538,7 @@ export default function Orders({ canManage = true }) {
                 {canManage ? <td className="col-customer" data-label={t('common.customer')}>{order.customer}</td> : null}
                 {canManage ? <td className="col-customer-code" data-label={t('common.customerCode')}>{order.customerCode ? `#${order.customerCode}` : t('common.noData')}</td> : null}
                 <td className="col-employee" data-label={t('common.employee')}>{order.employee || t('common.noData')}</td>
-                <td className="col-vehicle" data-label={t('common.vehicle')} style={{ color: 'var(--text-muted)' }}>{order.vehicle}</td>
+                <td className="col-vehicle" data-label={t('common.vehicle')} style={{ color: 'var(--text-muted)' }}>{order.plate_number || order.vehicle}</td>
                 <td className="col-service" data-label={t('common.service')}>{t(`services.${order.service}`)}</td>
                 <td className="col-date-time" data-label={t('pages.orders.dateTime')} style={{ color: 'var(--text-muted)' }}>
                   <div>{formatOrderDate(order.date, language)}</div>
