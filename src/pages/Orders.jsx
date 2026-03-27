@@ -345,6 +345,23 @@ export default function Orders({ canManage = true }) {
     fetchOrders()
   }, [])
 
+  function mapOrderToDb(form) {
+    const dbPayload = {
+      customer_name: form.customer || '',
+      customer_code: form.customerCode || null,
+      employee: form.employee || null,
+      vehicle: form.vehicle || null,
+      service: form.service || null,
+      price: form.price != null ? Number(form.price) : null,
+      date: form.date || null,
+      time: form.time || null,
+      status: form.status || null,
+    }
+
+    console.log('Supabase mapped payload:', dbPayload)
+    return dbPayload
+  }
+
   const filtered = orders.filter(order => {
     const normalizedSearch = search.toLowerCase()
     const matchSearch = (
@@ -360,7 +377,10 @@ export default function Orders({ canManage = true }) {
   async function handleSave(form) {
     try {
       if (modal === 'add') {
-        const { data, error: insertError } = await supabase.from('orders').insert([form]).select()
+        const payload = mapOrderToDb(form)
+        console.log('Supabase insert payload:', payload)
+
+        const { data, error: insertError } = await supabase.from('orders').insert([payload]).select()
         if (insertError) {
           console.error('Supabase insert error:', insertError)
           return
@@ -387,9 +407,12 @@ export default function Orders({ canManage = true }) {
           return
         }
 
+        const payload = mapOrderToDb(form)
+        console.log('Supabase update payload:', payload)
+
         const { data, error: updateError } = await supabase
           .from('orders')
-          .update(form)
+          .update(payload)
           .eq('id', orderId)
           .select()
 
@@ -409,9 +432,14 @@ export default function Orders({ canManage = true }) {
 
   async function handleStatusChange(id, status) {
     try {
+      const payload = {
+        status,
+      }
+      console.log('Supabase status update payload:', payload)
+
       const { data, error } = await supabase
         .from('orders')
-        .update({ status })
+        .update(payload)
         .eq('id', id)
         .select()
 
