@@ -3,7 +3,6 @@ import { useTranslation } from '../i18n'
 import { supabase } from '../supabase'
 
 const CUSTOMERS_STORAGE_KEY = 'app-customers'
-const SERVICES = ['Basic Wash', 'Premium Wash', 'Interior Clean', 'Full Detail', 'Tire & Rim Clean', 'Headlight Restore']
 const EMPLOYEE_OPTIONS = [
   'Eva Karlsson',
   'Fredrik Axelsson',
@@ -31,7 +30,7 @@ const STATUS_BADGE = {
   Cancelled: 'badge-danger',
 }
 
-const EMPTY_FORM = { customer: '', employee: '', vehicle: '', service: 'Basic Wash', price: '', date: '', time: '', status: 'Pending' }
+const EMPTY_FORM = { customer: '', employee: '', vehicle: '', service: '', price: '', date: '', time: '', status: 'Pending' }
 
 function loadCustomers() {
   if (typeof window === 'undefined') return []
@@ -75,7 +74,7 @@ function formatOrderTime(timeValue, language) {
   })
 }
 
-function OrderModal({ order, onSave, onClose, showCustomer, showPrice, customers }) {
+function OrderModal({ order, onSave, onClose, showCustomer, showPrice, customers, services }) {
   const { t } = useTranslation()
   const today = new Date().toISOString().split('T')[0]
   const [form, setForm] = useState(order
@@ -208,10 +207,10 @@ function OrderModal({ order, onSave, onClose, showCustomer, showPrice, customers
             )}
             <div className="form-row">
               <div className="form-group" style={{ flex: 1 }}>
-                <label className="form-label">{t('common.vehicle')}</label>
+                <label className="form-label">Plate Number</label>
                 <input
                   className="form-input"
-                  placeholder={t('pages.orders.vehiclePlaceholder')}
+                  placeholder="e.g. ABC-123 or e.g. 12345"
                   value={form.vehicle}
                   onChange={e => set('vehicle', e.target.value)}
                 />
@@ -220,8 +219,30 @@ function OrderModal({ order, onSave, onClose, showCustomer, showPrice, customers
             <div className="form-row">
               <div className="form-group" style={{ flex: 1 }}>
                 <label className="form-label">{t('common.service')}</label>
-                <select className="form-input" value={form.service} onChange={e => set('service', e.target.value)}>
-                  {SERVICES.map(service => <option key={service}>{t(`services.${service}`)}</option>)}
+                {servicesError ? (
+                  <div style={{ color: 'var(--danger)', marginBottom: 6 }}>{servicesError}</div>
+                ) : null}
+                <select
+                  className="form-input"
+                  value={form.service}
+                  onChange={e => {
+                    const selectedServiceName = e.target.value
+                    const selectedService = services.find(s => s.name === selectedServiceName)
+                    set('service', selectedServiceName)
+                    if (selectedService) {
+                      set('price', selectedService.default_price)
+                    }
+                  }}
+                >
+                  {servicesLoading ? (
+                    <option value="">{t('common.loading')}...</option>
+                  ) : services.length === 0 ? (
+                    <option value="">{t('pages.orders.noServices')}</option>
+                  ) : (
+                    services.map(service => (
+                      <option key={service.id} value={service.name}>{service.name}</option>
+                    ))
+                  )}
                 </select>
               </div>
               {showPrice ? (
@@ -283,8 +304,8 @@ function OrderView({ order, onClose, onEdit, onStatusChange, canEdit, showCustom
               ...(showCustomer ? [{ label: t('common.customer'), value: order.customer }] : []),
               ...(showCustomer ? [{ label: t('common.customerCode'), value: order.customerCode }] : []),
               { label: t('common.employee'), value: order.employee },
-              { label: t('common.vehicle'), value: order.plate_number || order.vehicle },
-              { label: t('common.service'), value: t(`services.${order.service}`) },
+              { label: 'Plate Number', value: order.plate_number || order.vehicle },
+              { label: t('common.service'), value: order.service || t('common.noData') },
               ...(showPrice ? [{ label: t('common.price'), value: formatCurrency(order.price, language) }] : []),
               { label: t('pages.orders.date'), value: `${formatOrderDate(order.date, language)} ${formatOrderTime(order.time, language)}` },
             ].map(row => (
@@ -326,9 +347,32 @@ export default function Orders({ canManage = true }) {
   const { formatCurrency, language, t } = useTranslation()
   const [customers, setCustomers] = useState(() => loadCustomers())
   const [orders, setOrders] = useState([])
+  const [services, setServices] = useState([])
+  const [servicesLoading, setServicesLoading] = useState(true)
+  const [servicesError, setServicesError] = useState(null)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('All')
   const [modal, setModal] = useState(null)
+
+  async function fetchServices() {
+    setServicesLoading(true)
+    setServicesError(null)
+
+    const { data, error } = await supabase
+      .from('services')
+      .select('*')
+      .order('created_at', { ascending: true })
+
+    if (error) {
+      console.error('Failed to fetch services:', error)
+      setServicesError(error.message)
+      setServices([])
+    } else {
+      setServices(data || [])
+    }
+
+    setServicesLoading(false)
+  }
 
   async function fetchOrders() {
     const { data, error } = await supabase
@@ -346,6 +390,7 @@ export default function Orders({ canManage = true }) {
 
   useEffect(() => {
     fetchOrders()
+    fetchServices()
   }, [])
 
   const mapOrderToDb = (form) => {
@@ -523,7 +568,7 @@ export default function Orders({ canManage = true }) {
               {canManage ? <th className="col-customer">{t('common.customer')}</th> : null}
               {canManage ? <th className="col-customer-code">{t('common.customerCode')}</th> : null}
               <th className="col-employee">{t('common.employee')}</th>
-              <th className="col-vehicle">{t('common.vehicle')}</th>
+              <th className="col-vehicle">Plate Number</th>
               <th className="col-service">{t('common.service')}</th>
               <th className="col-date-time">{t('pages.orders.dateTime')}</th>
               <th className="col-status">{t('common.status')}</th>
@@ -538,7 +583,7 @@ export default function Orders({ canManage = true }) {
                 {canManage ? <td className="col-customer" data-label={t('common.customer')}>{order.customer}</td> : null}
                 {canManage ? <td className="col-customer-code" data-label={t('common.customerCode')}>{order.customerCode ? `#${order.customerCode}` : t('common.noData')}</td> : null}
                 <td className="col-employee" data-label={t('common.employee')}>{order.employee || t('common.noData')}</td>
-                <td className="col-vehicle" data-label={t('common.vehicle')} style={{ color: 'var(--text-muted)' }}>{order.plate_number || order.vehicle}</td>
+                <td className="col-vehicle" data-label="Plate Number" style={{ color: 'var(--text-muted)' }}>{order.plate_number || order.vehicle}</td>
                 <td className="col-service" data-label={t('common.service')}>{t(`services.${order.service}`)}</td>
                 <td className="col-date-time" data-label={t('pages.orders.dateTime')} style={{ color: 'var(--text-muted)' }}>
                   <div>{formatOrderDate(order.date, language)}</div>
@@ -567,7 +612,16 @@ export default function Orders({ canManage = true }) {
       </div>
 
       {modal === 'add' && (
-        <OrderModal onSave={handleSave} onClose={() => setModal(null)} showCustomer={canManage} showPrice={canManage} customers={customers} />
+        <OrderModal
+          onSave={handleSave}
+          onClose={() => setModal(null)}
+          showCustomer={canManage}
+          showPrice={canManage}
+          customers={customers}
+          services={services}
+          servicesLoading={servicesLoading}
+          servicesError={servicesError}
+        />
       )}
 
       {modal?.mode === 'view' && (
@@ -586,7 +640,17 @@ export default function Orders({ canManage = true }) {
       )}
 
       {canManage && modal?.mode === 'edit' && (
-        <OrderModal order={modal.order} onSave={handleSave} onClose={() => setModal(null)} showCustomer showPrice customers={customers} />
+        <OrderModal
+          order={modal.order}
+          onSave={handleSave}
+          onClose={() => setModal(null)}
+          showCustomer
+          showPrice
+          customers={customers}
+          services={services}
+          servicesLoading={servicesLoading}
+          servicesError={servicesError}
+        />
       )}
     </div>
   )
