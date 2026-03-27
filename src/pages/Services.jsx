@@ -4,11 +4,11 @@ import { supabase } from '../supabase'
 
 const INITIAL_SERVICES = []
 
-const EMPTY_FORM = { icon: 'SV', name: '', default_price: '', status: 'Active' }
+const EMPTY_FORM = { name: '', default_price: '' }
 
 function ServiceModal({ service, onSave, onClose }) {
   const { t } = useTranslation()
-  const [form, setForm] = useState(service ? { ...service, default_price: service.default_price ?? '' } : { ...EMPTY_FORM })
+  const [form, setForm] = useState(service ? { name: service.name || '', default_price: service.default_price ?? '' } : { ...EMPTY_FORM })
 
   function set(field, value) {
     setForm(prev => ({ ...prev, [field]: value }))
@@ -37,16 +37,6 @@ function ServiceModal({ service, onSave, onClose }) {
         <form onSubmit={handleSubmit}>
           <div className="modal-body">
             <div className="form-row">
-              <div className="form-group" style={{ flex: '0 0 70px' }}>
-                <label className="form-label">{t('pages.services.icon')}</label>
-                <input
-                  className="form-input"
-                  style={{ textAlign: 'center', fontSize: 20 }}
-                  value={form.icon}
-                  onChange={e => set('icon', e.target.value)}
-                  maxLength={2}
-                />
-              </div>
               <div className="form-group" style={{ flex: 1 }}>
                 <label className="form-label">{t('pages.services.serviceName')}</label>
                 <input
@@ -57,16 +47,6 @@ function ServiceModal({ service, onSave, onClose }) {
                   required
                 />
               </div>
-            </div>
-            <div className="form-group">
-              <label className="form-label">{t('pages.services.description')}</label>
-              <textarea
-                className="form-input"
-                rows={2}
-                placeholder={t('pages.services.descriptionPlaceholder')}
-                value={form.desc}
-                onChange={e => set('desc', e.target.value)}
-              />
             </div>
             <div className="form-row">
               <div className="form-group" style={{ flex: 1 }}>
@@ -79,13 +59,6 @@ function ServiceModal({ service, onSave, onClose }) {
                   value={form.default_price}
                   onChange={e => set('default_price', e.target.value)}
                 />
-              </div>
-              <div className="form-group" style={{ flex: 1 }}>
-                <label className="form-label">Status</label>
-                <select className="form-input" value={form.status} onChange={e => set('status', e.target.value)}>
-                  <option value="Active">{t('statuses.service.Active')}</option>
-                  <option value="Inactive">{t('statuses.service.Inactive')}</option>
-                </select>
               </div>
             </div>
           </div>
@@ -113,7 +86,7 @@ export default function Services() {
     const { data, error: fetchError } = await supabase
       .from('services')
       .select('*')
-      .order('created_at', { ascending: true })
+      .order('created_at', { ascending: false })
 
     if (fetchError) {
       console.error('Failed to fetch services:', fetchError)
@@ -262,16 +235,11 @@ export default function Services() {
             <div className="service-card" key={display.id || display.name}>
               <div className="service-card-header">
                 <div className="service-icon">{display.icon}</div>
-                <span className={`badge ${display.status === 'Active' ? 'badge-success' : 'badge-neutral'}`}>
-                  {t(`statuses.service.${display.status}`)}
-                </span>
               </div>
-              <div className="service-name">{t(`services.${display.name}`)}</div>
-              <div className="service-desc">{t(`serviceDescriptions.${display.name}`)}</div>
+              <div className="service-name">{display.name}</div>
               <div className="service-footer">
                 <div>
                   <div className="service-price">{formatCurrency(display.price, language)}</div>
-                  <div className="service-duration">{display.duration}</div>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button className="btn btn-secondary btn-sm" onClick={() => setModal({ ...service, name: service.name || '' })}>{t('common.edit')}</button>
