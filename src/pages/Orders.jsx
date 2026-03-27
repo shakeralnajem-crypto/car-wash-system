@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from '../i18n'
+import { supabase } from '../supabase'
 
 const CUSTOMERS_STORAGE_KEY = 'app-customers'
 const SERVICES = ['Basic Wash', 'Premium Wash', 'Interior Clean', 'Full Detail', 'Tire & Rim Clean', 'Headlight Restore']
@@ -19,16 +20,6 @@ const EMPLOYEE_OPTIONS = [
   'Ulf Nilsson',
 ]
 
-const INITIAL_ORDERS = [
-  { id: 1042, customer: 'James Carter', employee: 'Eva Karlsson', vehicle: 'Toyota Camry', service: 'Full Detail', price: 89, date: 'Mar 26, 2026', time: '10:00 AM', status: 'Completed' },
-  { id: 1041, customer: 'Sarah Mitchell', employee: 'Fredrik Axelsson', vehicle: 'Honda Civic', service: 'Basic Wash', price: 25, date: 'Mar 26, 2026', time: '11:30 AM', status: 'In Progress' },
-  { id: 1040, customer: 'David Lee', employee: 'Fredrik Ranehammar', vehicle: 'Ford F-150', service: 'Premium Wash', price: 45, date: 'Mar 26, 2026', time: '09:00 AM', status: 'Completed' },
-  { id: 1039, customer: 'Emma Wilson', employee: 'Helén Richter', vehicle: 'Chevy Tahoe', service: 'Interior Clean', price: 60, date: 'Mar 25, 2026', time: '02:00 PM', status: 'Pending' },
-  { id: 1038, customer: 'Ryan Torres', employee: 'Helena Olsson', vehicle: 'BMW 3 Series', service: 'Basic Wash', price: 25, date: 'Mar 25, 2026', time: '03:30 PM', status: 'Completed' },
-  { id: 1037, customer: 'Ethan Martinez', employee: 'Klas Johansson', vehicle: 'Tesla Model 3', service: 'Full Detail', price: 89, date: 'Mar 25, 2026', time: '01:00 PM', status: 'Cancelled' },
-  { id: 1036, customer: 'Ava Thompson', employee: 'Simon Johansson', vehicle: 'Jeep Wrangler', service: 'Tire & Rim Clean', price: 30, date: 'Mar 24, 2026', time: '04:00 PM', status: 'Completed' },
-  { id: 1035, customer: 'Olivia Brown', employee: 'Tilda Ekenstierna', vehicle: 'Audi A4', service: 'Premium Wash', price: 45, date: 'Mar 24, 2026', time: '10:30 AM', status: 'Completed' },
-]
 
 const STATUS_OPTIONS = ['Pending', 'In Progress', 'Completed', 'Cancelled']
 const FILTERS = ['All', 'Pending', 'In Progress', 'Completed', 'Cancelled']
@@ -331,10 +322,28 @@ function OrderView({ order, onClose, onEdit, onStatusChange, canEdit, showCustom
 export default function Orders({ canManage = true }) {
   const { formatCurrency, language, t } = useTranslation()
   const [customers, setCustomers] = useState(() => loadCustomers())
-  const [orders, setOrders] = useState(INITIAL_ORDERS)
+  const [orders, setOrders] = useState([])
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('All')
   const [modal, setModal] = useState(null)
+
+  async function fetchOrders() {
+    const { data, error } = await supabase
+      .from('orders')
+      .select('*')
+      .order('id', { ascending: false })
+
+    if (error) {
+      console.error('Failed to fetch orders from Supabase:', error)
+      return
+    }
+
+    setOrders(data || [])
+  }
+
+  useEffect(() => {
+    fetchOrders()
+  }, [])
 
   const filtered = orders.filter(order => {
     const normalizedSearch = search.toLowerCase()
@@ -348,37 +357,95 @@ export default function Orders({ canManage = true }) {
     return matchSearch && matchFilter
   })
 
-  function handleSave(form) {
-    if (modal === 'add') {
-      const newId = Math.max(...orders.map(order => order.id)) + 1
-      setOrders(prev => [{ ...form, id: newId }, ...prev])
-
-      if (canManage && form.customerCode) {
-        const nextCustomers = customers.map(customer => (
-          customer.code === form.customerCode
-            ? { ...customer, visits: (Number(customer.visits) || 0) + 1 }
-            : customer
-        ))
-
-        setCustomers(nextCustomers)
-
-        if (typeof window !== 'undefined') {
-          window.localStorage.setItem(CUSTOMERS_STORAGE_KEY, JSON.stringify(nextCustomers))
+  async function handleSave(form) {
+    try {
+      if (modal === 'add') {
+        const { data, error: insertError } = await supabase.from('orders').insert([form]).select()
+        if (insertError) {
+          console.error('Supabase insert error:', insertError)
+          return
         }
+        console.log('Supabase insert result:', data)
+
+        if (canManage && form.customerCode) {
+          const nextCustomers = customers.map(customer => (
+            customer.code === form.customerCode
+              ? { ...customer, visits: (Number(customer.visits) || 0) + 1 }
+              : customer
+          ))
+
+          setCustomers(nextCustomers)
+
+          if (typeof window !== 'undefined') {
+            window.localStorage.setItem(CUSTOMERS_STORAGE_KEY, JSON.stringify(nextCustomers))
+          }
+        }
+      } else {
+        const orderId = modal?.order?.id
+        if (!orderId) {
+          console.error('Missing order id for update')
+          return
+        }
+
+        const { data, error: updateError } = await supabase
+          .from('orders')
+          .update(form)
+          .eq('id', orderId)
+          .select()
+
+        if (updateError) {
+          console.error('Supabase update error:', updateError)
+          return
+        }
+        console.log('Supabase update result:', data)
       }
-    } else {
-      setOrders(prev => prev.map(order => order.id === modal.order.id ? { ...order, ...form } : order))
+
+      await fetchOrders()
+      setModal(null)
+    } catch (error) {
+      console.error('handleSave error:', error)
     }
-    setModal(null)
   }
 
-  function handleStatusChange(id, status) {
-    setOrders(prev => prev.map(order => order.id === id ? { ...order, status } : order))
+  async function handleStatusChange(id, status) {
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .update({ status })
+        .eq('id', id)
+        .select()
+
+      if (error) {
+        console.error('Supabase status update error:', error)
+        return
+      }
+      console.log('Supabase status update result:', data)
+
+      await fetchOrders()
+    } catch (error) {
+      console.error('handleStatusChange error:', error)
+    }
   }
 
-  function handleDelete(id) {
-    if (window.confirm(t('pages.orders.deleteConfirm'))) {
-      setOrders(prev => prev.filter(order => order.id !== id))
+  async function handleDelete(id) {
+    if (!window.confirm(t('pages.orders.deleteConfirm'))) return
+
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .delete()
+        .eq('id', id)
+        .select()
+
+      if (error) {
+        console.error('Supabase delete error:', error)
+        return
+      }
+      console.log('Supabase delete result:', data)
+
+      await fetchOrders()
+    } catch (error) {
+      console.error('handleDelete error:', error)
     }
   }
 
