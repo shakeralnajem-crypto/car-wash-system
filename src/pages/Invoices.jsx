@@ -128,11 +128,11 @@ function createInvoiceObject({
   }
 }
 
-function groupIntoInvoices(rows) {
+function groupIntoInvoices(rows, unknown = '') {
   const map = new Map()
 
   rows.forEach(row => {
-    const key = (row.customer ?? 'Okänd').trim()
+    const key = (row.customer ?? unknown).trim()
     if (!map.has(key)) {
       map.set(key, {
         customer: key,
@@ -577,7 +577,7 @@ export default function Invoices() {
       if (fetchError) {
         setError(fetchError.message)
       } else {
-        setInvoices(groupIntoInvoices(data ?? []))
+        setInvoices(groupIntoInvoices(data ?? [], t('common.unknown')))
       }
 
       setLoading(false)

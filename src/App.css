@@ -1549,3 +1549,38 @@ tbody td {
     padding: 14px 16px;
   }
 }
+
+/* ── Horizontal scrollbar visibility ─────────────────────────── */
+/* Applied globally so every overflow-x:auto container is covered */
+
+.table-wrap,
+.filter-bar,
+.nav-links {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.table-wrap::-webkit-scrollbar,
+.filter-bar::-webkit-scrollbar,
+.nav-links::-webkit-scrollbar {
+  height: 8px;
+}
+
+.table-wrap::-webkit-scrollbar-track,
+.filter-bar::-webkit-scrollbar-track,
+.nav-links::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.table-wrap::-webkit-scrollbar-thumb,
+.filter-bar::-webkit-scrollbar-thumb,
+.nav-links::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 99px;
+}
+
+.table-wrap::-webkit-scrollbar-thumb:hover,
+.filter-bar::-webkit-scrollbar-thumb:hover,
+.nav-links::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}

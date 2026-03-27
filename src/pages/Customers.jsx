@@ -1,44 +1,21 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from '../i18n'
-
-const CUSTOMERS_STORAGE_KEY = 'app-customers'
-
-const INITIAL_CUSTOMERS = [
-  { id: 1, code: '1001', name: 'James Carter', email: 'james@example.com', phone: '(555) 201-3344', address: '88 Maple Drive, Austin TX', visits: 14, joined: 'Jan 2024', status: 'Active' },
-  { id: 2, code: '1002', name: 'Sarah Mitchell', email: 'sarah@example.com', phone: '(555) 408-7721', address: '210 Cedar Lane, Round Rock TX', visits: 8, joined: 'Mar 2024', status: 'Active' },
-  { id: 3, code: '1003', name: 'David Lee', email: 'david@example.com', phone: '(555) 310-5599', address: '34 Elm Street, Austin TX', visits: 22, joined: 'Nov 2023', status: 'Active' },
-  { id: 4, code: '1004', name: 'Emma Wilson', email: 'emma@example.com', phone: '(555) 714-8832', address: '555 Willow Blvd, Pflugerville TX', visits: 3, joined: 'Jun 2024', status: 'Active' },
-  { id: 5, code: '1005', name: 'Ryan Torres', email: 'ryan@example.com', phone: '(555) 619-2240', address: '19 Pine Court, Austin TX', visits: 11, joined: 'Feb 2024', status: 'Active' },
-  { id: 6, code: '1006', name: 'Olivia Brown', email: 'olivia@example.com', phone: '(555) 512-6673', address: '647 Sunset Drive, Austin TX', visits: 5, joined: 'May 2024', status: 'Inactive' },
-  { id: 7, code: '1007', name: 'Ethan Martinez', email: 'ethan@example.com', phone: '(555) 213-4410', address: '720 Oak Avenue, Kyle TX', visits: 18, joined: 'Dec 2023', status: 'Active' },
-  { id: 8, code: '1008', name: 'Ava Thompson', email: 'ava@example.com', phone: '(555) 917-3355', address: '311 Birch Road, Buda TX', visits: 7, joined: 'Apr 2024', status: 'Active' },
-]
+import { supabase } from '../supabase'
 
 const EMPTY_FORM = { code: '', name: '', email: '', phone: '', address: '', status: 'Active' }
 
-function loadCustomers() {
-  if (typeof window === 'undefined') return INITIAL_CUSTOMERS
-
-  try {
-    const storedCustomers = window.localStorage.getItem(CUSTOMERS_STORAGE_KEY)
-    return storedCustomers ? JSON.parse(storedCustomers) : INITIAL_CUSTOMERS
-  } catch {
-    return INITIAL_CUSTOMERS
-  }
-}
-
-function getNextCustomerCode(customers) {
-  const highestCode = customers.reduce((maxCode, customer) => {
-    const parsedCode = Number(customer.code)
-    return Number.isFinite(parsedCode) ? Math.max(maxCode, parsedCode) : maxCode
+function getNextCode(customers) {
+  const max = customers.reduce((m, c) => {
+    const n = Number(c.code)
+    return Number.isFinite(n) ? Math.max(m, n) : m
   }, 1000)
-
-  return String(highestCode + 1)
+  return String(max + 1)
 }
 
-function formatJoinedDate(value, language) {
-  const parsed = new Date(`1 ${value}`)
-  if (Number.isNaN(parsed.getTime())) return value
+function formatCreatedAt(value, language) {
+  if (!value) return '—'
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return '—'
   return parsed.toLocaleDateString(language === 'sv' ? 'sv-SE' : 'en-US', {
     month: 'short',
     year: 'numeric',
@@ -46,21 +23,13 @@ function formatJoinedDate(value, language) {
 }
 
 function Avatar({ name }) {
-  const initials = name.split(' ').map(word => word[0]).join('').slice(0, 2).toUpperCase()
-
+  const initials = (name || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
   return (
     <div style={{
-      width: 34,
-      height: 34,
-      borderRadius: '50%',
-      background: 'var(--primary-light)',
-      color: 'var(--primary)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontSize: 12,
-      fontWeight: 700,
-      flexShrink: 0,
+      width: 34, height: 34, borderRadius: '50%',
+      background: 'var(--primary-light)', color: 'var(--primary)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontSize: 12, fontWeight: 700, flexShrink: 0,
     }}>
       {initials}
     </div>
@@ -70,15 +39,18 @@ function Avatar({ name }) {
 function CustomerModal({ customer, onSave, onClose, isNew = false }) {
   const { t } = useTranslation()
   const [form, setForm] = useState(customer ? { ...customer } : { ...EMPTY_FORM })
+  const [saving, setSaving] = useState(false)
 
   function set(field, value) {
     setForm(prev => ({ ...prev, [field]: value }))
   }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault()
     if (!form.name.trim()) return
-    onSave(form)
+    setSaving(true)
+    await onSave(form)
+    setSaving(false)
   }
 
   return (
@@ -149,7 +121,9 @@ function CustomerModal({ customer, onSave, onClose, isNew = false }) {
           </div>
           <div className="modal-footer">
             <button type="button" className="btn btn-secondary" onClick={onClose}>{t('common.cancel')}</button>
-            <button type="submit" className="btn btn-primary">{t('pages.customers.saveCustomer')}</button>
+            <button type="submit" className="btn btn-primary" disabled={saving}>
+              {saving ? '...' : t('pages.customers.saveCustomer')}
+            </button>
           </div>
         </form>
       </div>
@@ -157,9 +131,8 @@ function CustomerModal({ customer, onSave, onClose, isNew = false }) {
   )
 }
 
-function CustomerView({ customer, onClose, onEdit }) {
-  const { language, t } = useTranslation()
-
+function CustomerView({ customer, onClose, onEdit, language }) {
+  const { t } = useTranslation()
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
@@ -180,15 +153,15 @@ function CustomerView({ customer, onClose, onEdit }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {[
               { label: t('common.customerCode'), value: customer.code },
-              { label: t('common.email'), value: customer.email },
-              { label: t('common.phone'), value: customer.phone },
-              { label: t('common.address'), value: customer.address },
-              { label: t('common.joined'), value: formatJoinedDate(customer.joined, language) },
-              { label: t('common.visits'), value: customer.visits },
+              { label: t('common.email'),         value: customer.email },
+              { label: t('common.phone'),          value: customer.phone },
+              { label: t('common.address'),        value: customer.address },
+              { label: t('common.joined'),         value: formatCreatedAt(customer.created_at, language) },
+              { label: t('common.visits'),         value: customer.visits },
             ].map(row => (
               <div key={row.label} style={{ display: 'flex', borderBottom: '1px solid var(--border)', paddingBottom: 10 }}>
                 <span style={{ width: 90, color: 'var(--text-muted)', fontSize: 13 }}>{row.label}</span>
-                <span style={{ fontWeight: 500 }}>{row.value || t('common.noData')}</span>
+                <span style={{ fontWeight: 500 }}>{row.value ?? t('common.noData')}</span>
               </div>
             ))}
           </div>
@@ -204,39 +177,71 @@ function CustomerView({ customer, onClose, onEdit }) {
 
 export default function Customers() {
   const { language, t } = useTranslation()
-  const [customers, setCustomers] = useState(() => loadCustomers())
+  const [customers, setCustomers] = useState([])
+  const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [modal, setModal] = useState(null)
 
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(CUSTOMERS_STORAGE_KEY, JSON.stringify(customers))
-    }
-  }, [customers])
-
-  const filtered = customers.filter(customer =>
-    customer.code.includes(search) ||
-    customer.name.toLowerCase().includes(search.toLowerCase()) ||
-    customer.email.toLowerCase().includes(search.toLowerCase())
-  )
-
-  function handleSave(form) {
-    if (modal === 'add') {
-      const locale = language === 'sv' ? 'sv-SE' : 'en-US'
-      const joined = new Date().toLocaleDateString(locale, { month: 'short', year: 'numeric' })
-      setCustomers(prev => [...prev, { ...form, id: Date.now(), visits: 0, joined }])
+  async function fetchCustomers() {
+    setLoading(true)
+    const { data, error } = await supabase
+      .from('customers')
+      .select('*')
+      .order('created_at', { ascending: false })
+    if (error) {
+      console.error('Failed to fetch customers:', error)
+      setCustomers([])
     } else {
-      setCustomers(prev => prev.map(customer => (
-        customer.id === modal.customer.id ? { ...customer, ...form } : customer
-      )))
+      setCustomers(Array.isArray(data) ? data : [])
     }
+    setLoading(false)
+  }
+
+  useEffect(() => { fetchCustomers() }, [])
+
+  const filtered = customers.filter(c => {
+    const q = search.toLowerCase()
+    return (
+      String(c.code || '').includes(search) ||
+      (c.name || '').toLowerCase().includes(q) ||
+      (c.email || '').toLowerCase().includes(q)
+    )
+  })
+
+  async function handleSave(form) {
+    if (modal === 'add') {
+      const { error } = await supabase.from('customers').insert([{
+        code:    form.code,
+        name:    form.name,
+        email:   form.email || '',
+        phone:   form.phone || '',
+        address: form.address || '',
+        status:  form.status,
+        visits:  0,
+      }])
+      if (error) { console.error('Insert customer error:', error); return }
+    } else {
+      const { error } = await supabase
+        .from('customers')
+        .update({
+          name:    form.name,
+          email:   form.email || '',
+          phone:   form.phone || '',
+          address: form.address || '',
+          status:  form.status,
+        })
+        .eq('id', modal.customer.id)
+      if (error) { console.error('Update customer error:', error); return }
+    }
+    await fetchCustomers()
     setModal(null)
   }
 
-  function handleDelete(id) {
-    if (window.confirm(t('pages.customers.deleteConfirm'))) {
-      setCustomers(prev => prev.filter(customer => customer.id !== id))
-    }
+  async function handleDelete(id) {
+    if (!window.confirm(t('pages.customers.deleteConfirm'))) return
+    const { error } = await supabase.from('customers').delete().eq('id', id)
+    if (error) { console.error('Delete customer error:', error); return }
+    await fetchCustomers()
   }
 
   return (
@@ -246,7 +251,9 @@ export default function Customers() {
           <div className="page-title">{t('pages.customers.title')}</div>
           <div className="page-subtitle">{t('pages.customers.subtitle')(customers.length)}</div>
         </div>
-        <button className="btn btn-primary" onClick={() => setModal('add')}>{t('pages.customers.addCustomer')}</button>
+        <button className="btn btn-primary" onClick={() => setModal('add')}>
+          {t('pages.customers.addCustomer')}
+        </button>
       </div>
 
       <div className="table-wrap">
@@ -274,7 +281,19 @@ export default function Customers() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map(customer => (
+            {loading ? (
+              <tr>
+                <td colSpan={7} style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-muted)' }}>
+                  {t('common.loading')}...
+                </td>
+              </tr>
+            ) : filtered.length === 0 ? (
+              <tr>
+                <td colSpan={7} style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-muted)' }}>
+                  {t('pages.customers.noCustomers')}
+                </td>
+              </tr>
+            ) : filtered.map(customer => (
               <tr key={customer.id}>
                 <td style={{ fontWeight: 600 }}>#{customer.code}</td>
                 <td>
@@ -286,9 +305,9 @@ export default function Customers() {
                     </div>
                   </div>
                 </td>
-                <td style={{ color: 'var(--text-muted)' }}>{customer.phone}</td>
+                <td style={{ color: 'var(--text-muted)' }}>{customer.phone || '—'}</td>
                 <td style={{ fontWeight: 500 }}>{customer.visits}</td>
-                <td style={{ color: 'var(--text-muted)' }}>{formatJoinedDate(customer.joined, language)}</td>
+                <td style={{ color: 'var(--text-muted)' }}>{formatCreatedAt(customer.created_at, language)}</td>
                 <td>
                   <span className={`badge ${customer.status === 'Active' ? 'badge-success' : 'badge-neutral'}`}>
                     {t(`statuses.customer.${customer.status}`)}
@@ -303,36 +322,34 @@ export default function Customers() {
                 </td>
               </tr>
             ))}
-            {filtered.length === 0 && (
-              <tr>
-                <td colSpan={7} style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-muted)' }}>
-                  {t('pages.customers.noCustomers')}
-                </td>
-              </tr>
-            )}
           </tbody>
         </table>
       </div>
 
       {modal === 'add' && (
         <CustomerModal
+          isNew
+          customer={{ ...EMPTY_FORM, code: getNextCode(customers) }}
           onSave={handleSave}
           onClose={() => setModal(null)}
-          customer={{ ...EMPTY_FORM, code: getNextCustomerCode(customers) }}
-          isNew
         />
       )}
 
       {modal?.mode === 'view' && (
         <CustomerView
           customer={modal.customer}
+          language={language}
           onClose={() => setModal(null)}
           onEdit={() => setModal({ mode: 'edit', customer: modal.customer })}
         />
       )}
 
       {modal?.mode === 'edit' && (
-        <CustomerModal customer={modal.customer} onSave={handleSave} onClose={() => setModal(null)} />
+        <CustomerModal
+          customer={modal.customer}
+          onSave={handleSave}
+          onClose={() => setModal(null)}
+        />
       )}
     </div>
   )

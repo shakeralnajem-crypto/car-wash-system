@@ -50,7 +50,7 @@ function ServiceModal({ service, onSave, onClose }) {
             </div>
             <div className="form-row">
               <div className="form-group" style={{ flex: 1 }}>
-                <label className="form-label">Default Price</label>
+                <label className="form-label">{t('pages.services.defaultPrice')}</label>
                 <input
                   className="form-input"
                   type="number"
@@ -110,13 +110,13 @@ export default function Services() {
   async function handleSave(form) {
     const name = (form.name || '').trim()
     if (!name) {
-      setError('Service name cannot be empty')
+      setError(t('pages.services.errorNameEmpty'))
       return
     }
 
     const exists = services.some(service => service.name?.toLowerCase() === name.toLowerCase() && service.id !== (modal?.id || null))
     if (exists) {
-      setError('Service name already exists')
+      setError(t('pages.services.errorNameExists'))
       return
     }
 
@@ -144,7 +144,7 @@ export default function Services() {
     } else {
       const id = modal?.id
       if (!id) {
-        setError('Invalid service id')
+        setError(t('pages.services.errorInvalidId'))
         return
       }
 

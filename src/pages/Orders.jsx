@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import { useTranslation } from '../i18n'
 import { supabase } from '../supabase'
 
-const CUSTOMERS_STORAGE_KEY = 'app-customers'
 const EMPLOYEE_OPTIONS = [
   'Eva Karlsson',
   'Fredrik Axelsson',
@@ -56,17 +55,6 @@ function normalizeForm(raw) {
   }
 }
 
-function loadCustomers() {
-  if (typeof window === 'undefined') return []
-  try {
-    const stored = window.localStorage.getItem(CUSTOMERS_STORAGE_KEY)
-    const parsed = stored ? JSON.parse(stored) : []
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
-
 function getFilterLabel(filter, t) {
   return filter === 'All' ? t('statuses.order.all') : t(`statuses.order.${filter}`)
 }
@@ -110,6 +98,8 @@ function OrderModal({
   onClose,
   showCustomer,
   showPrice,
+  employeeName = '',
+  lockEmployeeSelection = false,
   customers = [],
   services = [],
   servicesLoading = false,
@@ -120,9 +110,18 @@ function OrderModal({
   const [form, setForm] = useState(() =>
     order
       ? normalizeForm(order)
-      : { ...EMPTY_FORM, date: today }
+      : {
+          ...EMPTY_FORM,
+          date: today,
+          employee: lockEmployeeSelection ? employeeName : '',
+        }
   )
   const [customerSearch, setCustomerSearch] = useState('')
+
+  useEffect(() => {
+    if (!lockEmployeeSelection) return
+    setForm(prev => ({ ...prev, employee: employeeName || prev.employee }))
+  }, [employeeName, lockEmployeeSelection])
 
   const safeCustomers = Array.isArray(customers) ? customers : []
   const safeServices = Array.isArray(services) ? services : []
@@ -177,7 +176,7 @@ function OrderModal({
       <div className="modal modal-wide" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3 style={{ fontSize: 16, fontWeight: 700 }}>
-            {order ? `${t('pages.orders.editOrder')} #${order.id}` : t('pages.orders.newOrder')}
+            {order ? t('pages.orders.editOrder') : t('pages.orders.newOrder')}
           </h3>
           <button className="btn btn-secondary btn-sm" onClick={onClose}>{t('common.close')}</button>
         </div>
@@ -232,7 +231,7 @@ function OrderModal({
                     </select>
                   </div>
                   <div className="form-group" style={{ flex: 1 }}>
-                    <label className="form-label">{t('common.employee')}</label>
+                    <label className="form-label">{t('common.seller')}</label>
                     <select className="form-input" value={form.employee} onChange={e => set('employee', e.target.value)}>
                       <option value="">{t('pages.orders.employeePlaceholder')}</option>
                       {EMPLOYEE_OPTIONS.map(emp => <option key={emp} value={emp}>{emp}</option>)}
@@ -243,21 +242,25 @@ function OrderModal({
             ) : (
               <div className="form-row">
                 <div className="form-group" style={{ flex: 1 }}>
-                  <label className="form-label">{t('common.employee')}</label>
-                  <select className="form-input" value={form.employee} onChange={e => set('employee', e.target.value)}>
-                    <option value="">{t('pages.orders.employeePlaceholder')}</option>
-                    {EMPLOYEE_OPTIONS.map(emp => <option key={emp} value={emp}>{emp}</option>)}
-                  </select>
+                  <label className="form-label">{t('common.seller')}</label>
+                  {lockEmployeeSelection ? (
+                    <input className="form-input" value={form.employee || employeeName} readOnly />
+                  ) : (
+                    <select className="form-input" value={form.employee} onChange={e => set('employee', e.target.value)}>
+                      <option value="">{t('pages.orders.employeePlaceholder')}</option>
+                      {EMPLOYEE_OPTIONS.map(emp => <option key={emp} value={emp}>{emp}</option>)}
+                    </select>
+                  )}
                 </div>
               </div>
             )}
 
             <div className="form-row">
               <div className="form-group" style={{ flex: 1 }}>
-                <label className="form-label">Plate Number</label>
+                <label className="form-label">{t('pages.orders.plateNumber')}</label>
                 <input
                   className="form-input"
-                  placeholder="e.g. ABC-123 or e.g. 12345"
+                  placeholder={t('pages.orders.plateNumberPlaceholder')}
                   value={form.vehicle}
                   onChange={e => set('vehicle', e.target.value)}
                 />
@@ -272,11 +275,14 @@ function OrderModal({
                   value={form.service}
                   onChange={e => {
                     const selectedName = e.target.value
-                    const selectedService = safeServices.find(s => s.name === selectedName)
-                    set('service', selectedName)
-                    if (selectedService && selectedService.default_price != null) {
-                      set('price', String(selectedService.default_price))
-                    }
+                    const selectedService = safeServices.find(s => (s.name || '') === selectedName)
+                    setForm(prev => {
+                      const next = { ...prev, service: selectedName }
+                      if (selectedService && selectedService.default_price != null) {
+                        next.price = String(selectedService.default_price)
+                      }
+                      return next
+                    })
                   }}
                 >
                   {servicesLoading ? (
@@ -284,9 +290,12 @@ function OrderModal({
                   ) : safeServices.length === 0 ? (
                     <option value="">{t('pages.orders.noServices')}</option>
                   ) : (
-                    safeServices.map(service => (
-                      <option key={service.id} value={service.name || ''}>{service.name || ''}</option>
-                    ))
+                    <>
+                      <option value="">{t('pages.orders.servicePlaceholder')}</option>
+                      {safeServices.map(service => (
+                        <option key={service.id} value={service.name || ''}>{service.name || ''}</option>
+                      ))}
+                    </>
                   )}
                 </select>
               </div>
@@ -344,7 +353,7 @@ function OrderView({ order, onClose, onEdit, onStatusChange, canEdit, showCustom
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <h3 style={{ fontSize: 16, fontWeight: 700 }}>{t('pages.orders.orderDetails')} #{order.id}</h3>
+          <h3 style={{ fontSize: 16, fontWeight: 700 }}>{t('pages.orders.orderDetails')}</h3>
           <button className="btn btn-secondary btn-sm" onClick={onClose}>{t('common.close')}</button>
         </div>
         <div className="modal-body">
@@ -352,8 +361,8 @@ function OrderView({ order, onClose, onEdit, onStatusChange, canEdit, showCustom
             {[
               ...(showCustomer ? [{ label: t('common.customer'), value: order.customer }] : []),
               ...(showCustomer ? [{ label: t('common.customerCode'), value: order.customerCode }] : []),
-              { label: t('common.employee'), value: order.employee },
-              { label: 'Plate Number', value: order.plate_number || order.vehicle },
+              { label: t('common.seller'), value: order.employee },
+              { label: t('pages.orders.plateNumber'), value: order.plate_number || order.vehicle },
               { label: t('common.service'), value: order.service },
               ...(showPrice ? [{ label: t('common.price'), value: formatCurrency(Number(order.price) || 0, language) }] : []),
               { label: t('pages.orders.date'), value: `${formatOrderDate(order.date, language)} ${formatOrderTime(order.time, language)}` },
@@ -392,12 +401,23 @@ function OrderView({ order, onClose, onEdit, onStatusChange, canEdit, showCustom
   )
 }
 
-export default function Orders({ canManage = true }) {
+export default function Orders({
+  role = 'employee',
+  currentUserId = '',
+  canEdit = true,
+  canDelete = true,
+  showCustomer = true,
+  showPrice = true,
+  employeeName = '',
+}) {
   const { formatCurrency, language, t } = useTranslation()
-  const [customers, setCustomers] = useState(() => loadCustomers())
+  const isEmployeeRole = role === 'employee'
+  const [customers, setCustomers] = useState([])
   const [orders, setOrders] = useState([])
   const [services, setServices] = useState([])
+  const [employeeProfiles, setEmployeeProfiles] = useState([])
   const [servicesLoading, setServicesLoading] = useState(true)
+  const [ordersLoading, setOrdersLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('All')
   const [modal, setModal] = useState(null)
@@ -418,21 +438,71 @@ export default function Orders({ canManage = true }) {
   }
 
   async function fetchOrders() {
-    const { data, error } = await supabase
+    setOrdersLoading(true)
+    const orderSelect = isEmployeeRole
+      ? 'id, employee, plate_number, service, status, date, time, assigned_employee_id'
+      : '*'
+    let query = supabase
       .from('orders')
-      .select('*')
+      .select(orderSelect)
       .order('id', { ascending: false })
+    if (isEmployeeRole && currentUserId) {
+      query = query.eq('assigned_employee_id', currentUserId)
+    }
+    const { data, error } = await query
     if (error) {
       console.error('Failed to fetch orders from Supabase:', error)
+    } else {
+      setOrders(Array.isArray(data) ? data : [])
+    }
+    setOrdersLoading(false)
+  }
+
+  async function fetchCustomers() {
+    if (!showCustomer) {
+      setCustomers([])
       return
     }
-    setOrders(Array.isArray(data) ? data : [])
+    const { data } = await supabase
+      .from('customers')
+      .select('id, code, name, phone, email, address, visits')
+      .order('name', { ascending: true })
+    setCustomers(Array.isArray(data) ? data : [])
+  }
+
+  async function fetchEmployeeProfiles() {
+    if (isEmployeeRole) {
+      setEmployeeProfiles([])
+      return
+    }
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, display_name')
+    if (error) {
+      console.error('Failed to fetch employee profiles:', error)
+      setEmployeeProfiles([])
+      return
+    }
+    setEmployeeProfiles(Array.isArray(data) ? data : [])
   }
 
   useEffect(() => {
     fetchOrders()
     fetchServices()
+    fetchCustomers()
+    fetchEmployeeProfiles()
   }, [])
+
+  function resolveAssignedEmployeeId(selectedEmployeeName, fallbackId = null) {
+    if (isEmployeeRole) {
+      return currentUserId || fallbackId || null
+    }
+    const normalized = String(selectedEmployeeName || '').trim()
+    const matched = employeeProfiles.find(
+      profile => String(profile.display_name || '').trim() === normalized
+    )
+    return matched?.id || fallbackId || currentUserId || null
+  }
 
   function mapOrderToDb(form) {
     return {
@@ -450,9 +520,8 @@ export default function Orders({ canManage = true }) {
   const filtered = orders.filter(order => {
     const q = search.toLowerCase()
     const matchSearch = !search || (
-      (canManage && (order.customer || '').toLowerCase().includes(q)) ||
-      (canManage && String(order.customerCode || '').includes(search)) ||
-      String(order.id || '').includes(search) ||
+      (showCustomer && (order.customer || '').toLowerCase().includes(q)) ||
+      (showCustomer && String(order.customerCode || '').includes(search)) ||
       (order.employee || '').toLowerCase().includes(q)
     )
     const matchFilter = filter === 'All' || order.status === filter
@@ -462,23 +531,34 @@ export default function Orders({ canManage = true }) {
   async function handleSave(form) {
     try {
       if (modal === 'add') {
-        const payload = mapOrderToDb(form)
+        const selectedEmployeeName = isEmployeeRole
+          ? employeeName
+          : (form.employee || employeeName)
+        const assignedEmployeeId = resolveAssignedEmployeeId(selectedEmployeeName)
+        if (!assignedEmployeeId) {
+          console.error('Missing assigned employee id for new order')
+          return
+        }
+        const payload = {
+          ...mapOrderToDb(form),
+          employee: selectedEmployeeName,
+          assigned_employee_id: assignedEmployeeId,
+        }
         const { data, error } = await supabase.from('orders').insert([payload]).select()
         if (error) {
-          console.error('Supabase insert error:', error)
+          console.error('Supabase insert error:', error.message, error.details, error.hint)
           return
         }
         console.log('Supabase insert result:', data)
 
-        if (canManage && form.customerCode) {
-          const nextCustomers = customers.map(customer =>
-            customer.code === form.customerCode
-              ? { ...customer, visits: (Number(customer.visits) || 0) + 1 }
-              : customer
-          )
-          setCustomers(nextCustomers)
-          if (typeof window !== 'undefined') {
-            window.localStorage.setItem(CUSTOMERS_STORAGE_KEY, JSON.stringify(nextCustomers))
+        if (showCustomer && form.customerCode) {
+          const customer = customers.find(c => c.code === form.customerCode)
+          if (customer) {
+            await supabase
+              .from('customers')
+              .update({ visits: (Number(customer.visits) || 0) + 1 })
+              .eq('id', customer.id)
+            await fetchCustomers()
           }
         }
       } else {
@@ -487,7 +567,17 @@ export default function Orders({ canManage = true }) {
           console.error('Missing order id for update')
           return
         }
-        const payload = mapOrderToDb(form)
+        const selectedEmployeeName = isEmployeeRole
+          ? employeeName
+          : (form.employee || employeeName || modal?.order?.employee || '')
+        const payload = {
+          ...mapOrderToDb(form),
+          employee: selectedEmployeeName,
+          assigned_employee_id: resolveAssignedEmployeeId(
+            selectedEmployeeName,
+            modal?.order?.assigned_employee_id ?? null
+          ),
+        }
         const { data, error: updateError } = await supabase
           .from('orders')
           .update(payload)
@@ -542,6 +632,8 @@ export default function Orders({ canManage = true }) {
     }
   }
 
+  const colSpan = 6 + (showCustomer ? 2 : 0) + (showPrice ? 1 : 0)
+
   return (
     <div className="page">
       <div className="page-header">
@@ -572,7 +664,7 @@ export default function Orders({ canManage = true }) {
           <input
             className="search-input"
             type="text"
-            placeholder={canManage ? t('pages.orders.searchPlaceholder') : t('common.search')}
+            placeholder={showCustomer ? t('pages.orders.searchPlaceholder') : t('common.search')}
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
@@ -581,29 +673,33 @@ export default function Orders({ canManage = true }) {
         <table className="orders-table">
           <thead>
             <tr>
-              <th className="col-order-id">{t('pages.orders.orderId')}</th>
-              {canManage ? <th className="col-customer">{t('common.customer')}</th> : null}
-              {canManage ? <th className="col-customer-code">{t('common.customerCode')}</th> : null}
-              <th className="col-employee">{t('common.employee')}</th>
-              <th className="col-vehicle">Plate Number</th>
+              {showCustomer ? <th className="col-customer">{t('common.customer')}</th> : null}
+              {showCustomer ? <th className="col-customer-code">{t('common.customerCode')}</th> : null}
+              <th className="col-employee">{t('common.seller')}</th>
+              <th className="col-vehicle">{t('pages.orders.plateNumber')}</th>
               <th className="col-service">{t('common.service')}</th>
               <th className="col-date-time">{t('pages.orders.dateTime')}</th>
               <th className="col-status">{t('common.status')}</th>
-              {canManage ? <th className="col-price text-right">{t('common.price')}</th> : null}
+              {showPrice ? <th className="col-price text-right">{t('common.price')}</th> : null}
               <th className="col-actions">{t('common.actions')}</th>
             </tr>
           </thead>
           <tbody>
-            {filtered.map(order => {
+            {ordersLoading ? (
+              <tr>
+                <td colSpan={colSpan} style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-muted)' }}>
+                  {t('common.loading')}...
+                </td>
+              </tr>
+            ) : filtered.map(order => {
               const status = safeStatus(order.status)
               return (
                 <tr key={order.id}>
-                  <td className="col-order-id" data-label={t('pages.orders.orderId')} style={{ fontWeight: 600 }}>#{order.id}</td>
-                  {canManage ? <td className="col-customer" data-label={t('common.customer')}>{order.customer || t('common.noData')}</td> : null}
-                  {canManage ? <td className="col-customer-code" data-label={t('common.customerCode')}>{order.customerCode ? `#${order.customerCode}` : t('common.noData')}</td> : null}
-                  <td className="col-employee" data-label={t('common.employee')}>{order.employee || t('common.noData')}</td>
-                  <td className="col-vehicle" data-label="Plate Number" style={{ color: 'var(--text-muted)' }}>{order.plate_number || order.vehicle || t('common.noData')}</td>
-                  <td className="col-service" data-label={t('common.service')}>{order.service ? t(`services.${order.service}`) : t('common.noData')}</td>
+                  {showCustomer ? <td className="col-customer" data-label={t('common.customer')}>{order.customer || t('common.noData')}</td> : null}
+                  {showCustomer ? <td className="col-customer-code" data-label={t('common.customerCode')}>{order.customerCode ? `#${order.customerCode}` : t('common.noData')}</td> : null}
+                  <td className="col-employee" data-label={t('common.seller')}>{order.employee || t('common.noData')}</td>
+                  <td className="col-vehicle" data-label={t('pages.orders.plateNumber')} style={{ color: 'var(--text-muted)' }}>{order.plate_number || order.vehicle || t('common.noData')}</td>
+                  <td className="col-service" data-label={t('common.service')}>{order.service || t('common.noData')}</td>
                   <td className="col-date-time" data-label={t('pages.orders.dateTime')} style={{ color: 'var(--text-muted)' }}>
                     <div>{formatOrderDate(order.date, language)}</div>
                     <div style={{ fontSize: 12 }}>{formatOrderTime(order.time, language)}</div>
@@ -611,20 +707,20 @@ export default function Orders({ canManage = true }) {
                   <td className="col-status" data-label={t('common.status')}>
                     <span className={`badge ${STATUS_BADGE[status] || ''}`}>{t(`statuses.order.${status}`)}</span>
                   </td>
-                  {canManage ? <td className="col-price text-right" data-label={t('common.price')} style={{ fontWeight: 600 }}>{formatCurrency(Number(order.price) || 0, language)}</td> : null}
+                  {showPrice ? <td className="col-price text-right" data-label={t('common.price')} style={{ fontWeight: 600 }}>{formatCurrency(Number(order.price) || 0, language)}</td> : null}
                   <td className="col-actions" data-label={t('common.actions')}>
                     <div className="table-actions">
                       <button className="btn btn-secondary btn-sm" onClick={() => setModal({ mode: 'view', order })}>{t('common.view')}</button>
-                      {canManage ? <button className="btn btn-secondary btn-sm" onClick={() => setModal({ mode: 'edit', order })}>{t('common.edit')}</button> : null}
-                      {canManage ? <button className="btn btn-danger btn-sm" onClick={() => handleDelete(order.id)}>{t('common.delete')}</button> : null}
+                      {canEdit ? <button className="btn btn-secondary btn-sm" onClick={() => setModal({ mode: 'edit', order })}>{t('common.edit')}</button> : null}
+                      {canDelete ? <button className="btn btn-danger btn-sm" onClick={() => handleDelete(order.id)}>{t('common.delete')}</button> : null}
                     </div>
                   </td>
                 </tr>
               )
             })}
-            {filtered.length === 0 && (
+            {!ordersLoading && filtered.length === 0 && (
               <tr>
-                <td colSpan={canManage ? 10 : 8} style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-muted)' }}>
+                <td colSpan={colSpan} style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-muted)' }}>
                   {t('pages.orders.noOrders')}
                 </td>
               </tr>
@@ -637,8 +733,10 @@ export default function Orders({ canManage = true }) {
         <OrderModal
           onSave={handleSave}
           onClose={() => setModal(null)}
-          showCustomer={canManage}
-          showPrice={canManage}
+          showCustomer={showCustomer}
+          showPrice={showPrice}
+          employeeName={employeeName}
+          lockEmployeeSelection={isEmployeeRole}
           customers={customers}
           services={services}
           servicesLoading={servicesLoading}
@@ -650,9 +748,9 @@ export default function Orders({ canManage = true }) {
           order={modal.order}
           onClose={() => setModal(null)}
           onEdit={() => setModal({ mode: 'edit', order: modal.order })}
-          canEdit={canManage}
-          showCustomer={canManage}
-          showPrice={canManage}
+          canEdit={canEdit}
+          showCustomer={showCustomer}
+          showPrice={showPrice}
           onStatusChange={(id, status) => {
             handleStatusChange(id, status)
             setModal(prev => prev?.order ? { ...prev, order: { ...prev.order, status } } : prev)
@@ -660,13 +758,15 @@ export default function Orders({ canManage = true }) {
         />
       )}
 
-      {canManage && modal?.mode === 'edit' && modal.order && (
+      {canEdit && modal?.mode === 'edit' && modal.order && (
         <OrderModal
           order={modal.order}
           onSave={handleSave}
           onClose={() => setModal(null)}
-          showCustomer
-          showPrice
+          showCustomer={showCustomer}
+          showPrice={showPrice}
+          employeeName={employeeName}
+          lockEmployeeSelection={false}
           customers={customers}
           services={services}
           servicesLoading={servicesLoading}

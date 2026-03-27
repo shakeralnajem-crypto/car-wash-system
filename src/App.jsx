@@ -1,22 +1,31 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import './App.css'
 import Dashboard from './pages/Dashboard'
 import Services from './pages/Services'
 import Customers from './pages/Customers'
 import Orders from './pages/Orders'
 import Invoices from './pages/Invoices'
+import Settings from './pages/Settings'
 import { LanguageProvider, useTranslation } from './i18n'
+import { supabase } from './supabase'
 
-const SESSION_STORAGE_KEY = 'app-session'
+const ADMIN_PAGES = [
+  { id: 'dashboard', labelKey: 'nav.dashboard' },
+  { id: 'services', labelKey: 'nav.services' },
+  { id: 'customers', labelKey: 'nav.customers' },
+  { id: 'orders', labelKey: 'nav.orders' },
+  { id: 'invoices', labelKey: 'nav.invoices' },
+  { id: 'settings', labelKey: 'nav.settings' },
+]
 
-const ADMIN_ACCOUNT = {
-  username: 'Bager',
-  displayName: 'Bager',
-  password: 'Linn2020',
-  role: 'admin',
-}
+const RESTRICTED_PAGES = [
+  { id: 'orders', labelKey: 'nav.orders' },
+]
 
-const EMPLOYEE_NAMES = [
+// Staff display names shown in the login dropdown.
+// Order: admin first, then employees alphabetically.
+const STAFF_NAMES = [
+  'Bager',
   'Eva Karlsson',
   'Fredrik Axelsson',
   'Fredrik Ranehammar',
@@ -32,61 +41,42 @@ const EMPLOYEE_NAMES = [
   'Ulf Nilsson',
 ]
 
-const EMPLOYEE_ACCOUNTS = EMPLOYEE_NAMES.map(name => ({
-  username: name,
-  displayName: name,
-  role: 'employee',
-}))
+const EMAIL_DOMAIN = 'newmanbil.local'
 
-const LOGIN_OPTIONS = [
-  ADMIN_ACCOUNT,
-  ...EMPLOYEE_ACCOUNTS,
-]
-
-const PAGES = [
-  { id: 'dashboard', labelKey: 'nav.dashboard' },
-  { id: 'services', labelKey: 'nav.services' },
-  { id: 'customers', labelKey: 'nav.customers' },
-  { id: 'orders', labelKey: 'nav.orders' },
-  { id: 'invoices', labelKey: 'nav.invoices' },
-]
-
-function normalizeUsername(value) {
-  return value.trim().toLocaleLowerCase('sv-SE')
+// Convert a display name to the internal email used for Supabase Auth.
+// "Eva Karlsson" → "eva.karlsson@newmanbil.local"
+// "Helén Richter" → "helen.richter@newmanbil.local"
+// Never shown to the user.
+function usernameToEmail(displayName) {
+  return (
+    displayName
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // strip diacritics (é→e, etc.)
+      .toLowerCase()
+      .replace(/\s+/g, '.')            // spaces → dots
+    + '@' + EMAIL_DOMAIN
+  )
 }
 
-function getStoredSession() {
+function readGoogleNotificationFromUrl() {
   if (typeof window === 'undefined') return null
-
-  try {
-    const rawSession = window.localStorage.getItem(SESSION_STORAGE_KEY)
-    const session = rawSession ? JSON.parse(rawSession) : null
-
-    if (!session?.username || !session?.role) return null
-
-    if (
-      session.role === 'admin' &&
-      normalizeUsername(session.username) === normalizeUsername(ADMIN_ACCOUNT.username)
-    ) {
-      return {
-        username: ADMIN_ACCOUNT.username,
-        displayName: ADMIN_ACCOUNT.displayName,
-        role: ADMIN_ACCOUNT.role,
-      }
+  const params = new URLSearchParams(window.location.search)
+  const google = params.get('google')
+  if (!google) return null
+  if (google === 'success') {
+    return {
+      type: 'success',
+      email: params.get('email') ?? null,
+      calendarOk: params.get('calendar_ok') === 'true',
     }
-
-    if (session.role === 'employee') {
-      const employee = EMPLOYEE_ACCOUNTS.find(
-        account => normalizeUsername(account.username) === normalizeUsername(session.username)
-      )
-
-      return employee || null
-    }
-
-    return null
-  } catch {
-    return null
   }
+  if (google === 'error') {
+    return {
+      type: 'error',
+      reason: params.get('reason') ?? 'unknown',
+    }
+  }
+  return null
 }
 
 function getInitials(name) {
@@ -119,38 +109,51 @@ function LanguageSwitcher({ language, setLanguage }) {
   )
 }
 
-function LoginScreen({ onLogin }) {
+const FUNCTIONS_URL = import.meta.env.VITE_FUNCTIONS_URL ?? 'http://localhost:54321/functions/v1'
+
+function LoginScreen() {
   const { language, setLanguage, t } = useTranslation()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+  // forgot-password state
+  const [resetSent, setResetSent] = useState(false)
+  const [resetLoading, setResetLoading] = useState(false)
+  const [resetError, setResetError] = useState('')
 
-  const handleSubmit = event => {
+  async function handleSubmit(event) {
     event.preventDefault()
-
-    const normalizedUsername = normalizeUsername(username)
-
-    if (normalizedUsername === normalizeUsername(ADMIN_ACCOUNT.username)) {
-      if (password === ADMIN_ACCOUNT.password) {
-        onLogin({
-          username: ADMIN_ACCOUNT.username,
-          displayName: ADMIN_ACCOUNT.displayName,
-          role: ADMIN_ACCOUNT.role,
-        })
-        return
-      }
-    } else {
-      const employee = EMPLOYEE_ACCOUNTS.find(
-        account => normalizeUsername(account.username) === normalizedUsername
-      )
-
-      if (employee) {
-        onLogin(employee)
-        return
-      }
+    if (!username) return
+    setError('')
+    setLoading(true)
+    const email = usernameToEmail(username)
+    const { error: authError } = await supabase.auth.signInWithPassword({ email, password })
+    if (authError) {
+      setError(t('auth.invalidCredentials'))
     }
+    setLoading(false)
+  }
 
-    setError(t('auth.invalidCredentials'))
+  async function handleForgotPassword() {
+    if (!username) {
+      setResetError(t('auth.forgotSelectFirst'))
+      return
+    }
+    setResetError('')
+    setResetLoading(true)
+    try {
+      const res = await fetch(`${FUNCTIONS_URL}/password-reset-request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: usernameToEmail(username), display_name: username }),
+      })
+      if (!res.ok) throw new Error('server error')
+      setResetSent(true)
+    } catch {
+      setResetError(t('auth.forgotError'))
+    }
+    setResetLoading(false)
   }
 
   return (
@@ -178,13 +181,14 @@ function LoginScreen({ onLogin }) {
               onChange={event => {
                 setUsername(event.target.value)
                 if (error) setError('')
+                if (resetSent) setResetSent(false)
+                if (resetError) setResetError('')
               }}
+              required
             >
               <option value="">{t('auth.usernamePlaceholder')}</option>
-              {LOGIN_OPTIONS.map(account => (
-                <option key={account.username} value={account.username}>
-                  {account.displayName}
-                </option>
+              {STAFF_NAMES.map(name => (
+                <option key={name} value={name}>{name}</option>
               ))}
             </select>
           </div>
@@ -201,59 +205,141 @@ function LoginScreen({ onLogin }) {
               }}
               placeholder={t('auth.passwordPlaceholder')}
               autoComplete="current-password"
+              required
             />
           </div>
 
-          <p className="auth-hint">{t('auth.employeeHint')}</p>
           {error ? <p className="auth-error">{error}</p> : null}
 
-          <button className="btn btn-primary auth-submit" type="submit">
-            {t('auth.signIn')}
+          <button className="btn btn-primary auth-submit" type="submit" disabled={loading}>
+            {loading ? '...' : t('auth.signIn')}
           </button>
         </form>
+
+        <div style={{ marginTop: 16, textAlign: 'center' }}>
+          {resetSent ? (
+            <p style={{ color: 'var(--success, #16a34a)', fontSize: 13 }}>
+              {t('auth.forgotSuccess')}
+            </p>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={handleForgotPassword}
+                disabled={resetLoading}
+                style={{ fontSize: 13 }}
+              >
+                {resetLoading ? '...' : t('auth.forgotPassword')}
+              </button>
+              {resetError ? (
+                <p style={{ color: 'var(--danger, #dc2626)', fontSize: 13, marginTop: 6 }}>
+                  {resetError}
+                </p>
+              ) : null}
+            </>
+          )}
+        </div>
       </div>
     </div>
   )
 }
 
 function AppShell() {
-  const [currentUser, setCurrentUser] = useState(() => getStoredSession())
-  const [activePage, setActivePage] = useState(() => (
-    getStoredSession()?.role === 'employee' ? 'orders' : 'dashboard'
-  ))
+  const [session, setSession] = useState(undefined) // undefined = loading, null = logged out
+  const [profile, setProfile] = useState(null)
+  const [activePage, setActivePage] = useState('orders')
+  const [googleNotification, setGoogleNotification] = useState(null)
+  const initialPageSet = useRef(false)
   const { language, setLanguage, t } = useTranslation()
-  const availablePages = currentUser?.role === 'employee'
-    ? PAGES.filter(page => page.id === 'orders')
-    : PAGES
 
+  // Bootstrap session from storage, then subscribe to changes
   useEffect(() => {
-    if (!currentUser) return
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session ?? null)
+    })
 
-    if (!availablePages.some(page => page.id === activePage)) {
-      setActivePage(availablePages[0]?.id || 'orders')
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session ?? null)
+      if (!session) {
+        setProfile(null)
+        initialPageSet.current = false
+      }
+    })
+
+    return () => subscription.unsubscribe()
+  }, [])
+
+  // Fetch profile whenever session user changes
+  useEffect(() => {
+    if (!session?.user) return
+    supabase
+      .from('profiles')
+      .select('role, display_name')
+      .eq('id', session.user.id)
+      .single()
+      .then(({ data }) => {
+        setProfile(
+          data ?? { role: 'employee', display_name: session.user.email ?? '' }
+        )
+      })
+  }, [session?.user?.id])
+
+  // Set initial page once after profile loads, and handle Google OAuth redirect
+  useEffect(() => {
+    if (!profile) return
+
+    if (!initialPageSet.current) {
+      initialPageSet.current = true
+      const notification = readGoogleNotificationFromUrl()
+      if (notification) {
+        setGoogleNotification(notification)
+        if (profile.role === 'admin') {
+          setActivePage('settings')
+        }
+        window.history.replaceState({}, '', window.location.pathname)
+      } else {
+        setActivePage(profile.role === 'admin' ? 'dashboard' : 'orders')
+      }
     }
-  }, [activePage, availablePages, currentUser])
+  }, [profile])
 
-  const handleLogin = user => {
-    setCurrentUser(user)
-    setActivePage(user.role === 'employee' ? 'orders' : 'dashboard')
-
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(user))
-    }
+  // Still resolving session
+  if (session === undefined) {
+    return null
   }
 
-  const handleLogout = () => {
-    setCurrentUser(null)
-    setActivePage('dashboard')
-
-    if (typeof window !== 'undefined') {
-      window.localStorage.removeItem(SESSION_STORAGE_KEY)
-    }
+  if (!session) {
+    return <LoginScreen />
   }
 
-  if (!currentUser) {
-    return <LoginScreen onLogin={handleLogin} />
+  // Session exists but profile not yet loaded
+  if (!profile) {
+    return null
+  }
+
+  const role = profile.role
+  const displayName = profile.display_name || session.user.email || ''
+  const isAdmin = role === 'admin'
+  const isManager = role === 'manager'
+  const isEmployee = role === 'employee'
+
+  const availablePages = isAdmin ? ADMIN_PAGES : RESTRICTED_PAGES
+
+  const roleBadgeLabel = isAdmin
+    ? t('auth.adminLabel')
+    : isManager
+    ? t('auth.managerLabel')
+    : t('auth.accessOrdersOnly')
+
+  const roleLabel = isAdmin
+    ? t('auth.adminLabel')
+    : isManager
+    ? t('auth.managerLabel')
+    : t('auth.employeeLabel')
+
+  async function handleLogout() {
+    await supabase.auth.signOut()
   }
 
   return (
@@ -278,29 +364,41 @@ function AppShell() {
 
         <div className="nav-right">
           <LanguageSwitcher language={language} setLanguage={setLanguage} />
-          <span className="badge badge-neutral">
-            {currentUser.role === 'admin' ? t('auth.adminLabel') : t('auth.accessOrdersOnly')}
-          </span>
+          <span className="badge badge-neutral">{roleBadgeLabel}</span>
           <button className="btn btn-secondary btn-sm" onClick={handleLogout} type="button">
             {t('auth.signOut')}
           </button>
           <div className="nav-user">
             <div className="nav-user-meta">
-              <span className="nav-user-name">{currentUser.displayName}</span>
-              <span className="nav-user-role">
-                {currentUser.role === 'admin' ? t('auth.adminLabel') : t('auth.employeeLabel')}
-              </span>
+              <span className="nav-user-name">{displayName}</span>
+              <span className="nav-user-role">{roleLabel}</span>
             </div>
-            <div className="nav-avatar">{getInitials(currentUser.displayName)}</div>
+            <div className="nav-avatar">{getInitials(displayName)}</div>
           </div>
         </div>
       </nav>
 
-      {activePage === 'dashboard' && currentUser.role === 'admin' && <Dashboard onNavigate={setActivePage} />}
-      {activePage === 'services' && currentUser.role === 'admin' && <Services />}
-      {activePage === 'customers' && currentUser.role === 'admin' && <Customers />}
-      {activePage === 'orders' && <Orders canManage={currentUser.role === 'admin'} />}
-      {activePage === 'invoices' && currentUser.role === 'admin' && <Invoices />}
+      {activePage === 'dashboard' && isAdmin && <Dashboard onNavigate={setActivePage} />}
+      {activePage === 'services' && isAdmin && <Services />}
+      {activePage === 'customers' && isAdmin && <Customers />}
+      {activePage === 'orders' && (
+        <Orders
+          role={role}
+          currentUserId={session.user.id}
+          canEdit={isAdmin || isManager}
+          canDelete={isAdmin}
+          showCustomer={!isEmployee}
+          showPrice={!isEmployee}
+          employeeName={displayName}
+        />
+      )}
+      {activePage === 'invoices' && isAdmin && <Invoices />}
+      {activePage === 'settings' && isAdmin && (
+        <Settings
+          googleNotification={googleNotification}
+          onClearNotification={() => setGoogleNotification(null)}
+        />
+      )}
     </>
   )
 }
