@@ -74,7 +74,7 @@ function formatOrderTime(timeValue, language) {
   })
 }
 
-function OrderModal({ order, onSave, onClose, showCustomer, showPrice, customers, services }) {
+function OrderModal({ order, onSave, onClose, showCustomer, showPrice, customers, services, servicesError }) {
   const { t } = useTranslation()
   const today = new Date().toISOString().split('T')[0]
   const [form, setForm] = useState(order
