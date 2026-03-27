@@ -74,7 +74,7 @@ function formatOrderTime(timeValue, language) {
   })
 }
 
-function OrderModal({ order, onSave, onClose, showCustomer, showPrice, customers, services, servicesError }) {
+function OrderModal({ order, onSave, onClose, showCustomer, showPrice, customers, services }) {
   const { t } = useTranslation()
   const today = new Date().toISOString().split('T')[0]
   const [form, setForm] = useState(order
@@ -219,9 +219,6 @@ function OrderModal({ order, onSave, onClose, showCustomer, showPrice, customers
             <div className="form-row">
               <div className="form-group" style={{ flex: 1 }}>
                 <label className="form-label">{t('common.service')}</label>
-                {servicesError ? (
-                  <div style={{ color: 'var(--danger)', marginBottom: 6 }}>{servicesError}</div>
-                ) : null}
                 <select
                   className="form-input"
                   value={form.service}
@@ -620,7 +617,6 @@ export default function Orders({ canManage = true }) {
           customers={customers}
           services={services}
           servicesLoading={servicesLoading}
-          servicesError={servicesError}
         />
       )}
 
@@ -649,7 +645,6 @@ export default function Orders({ canManage = true }) {
           customers={customers}
           services={services}
           servicesLoading={servicesLoading}
-          servicesError={servicesError}
         />
       )}
     </div>
